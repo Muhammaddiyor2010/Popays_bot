@@ -1,0 +1,20 @@
+# POPAYS Bot Dependencies
+# Core Telegram Bot Framework
+aiogram==3.2.0
+
+# HTTP Client for API requests
+aiohttp==3.9.3
+
+# Environment variables management
+python-dotenv==1.0.0
+
+# Standard library dependencies (included with Python)
+# - asyncio (built-in)
+# - logging (built-in)
+# - sqlite3 (built-in)
+# - json (built-in)
+# - uuid (built-in)
+# - datetime (built-in)
+# - typing (built-in)
+# - os (built-in)
+# - re (built-in)

@@ -1,0 +1,35 @@
+# POPAYS Bot Server Deployment Commands
+# Server: 5.129.249.29
+# SSH: ssh root@5.129.249.29
+
+# 1. Connect to server
+ssh root@5.129.249.29
+
+# 2. Run deployment script
+chmod +x deploy.sh
+./deploy.sh
+
+# 3. Upload bot files (run from your local machine)
+scp -r "C:\Users\ASTORE\OneDrive\Рабочий стол\Codlarim\POPAYS Bot\*" root@5.129.249.29:/opt/popays-bot/
+
+# 4. On server - setup environment
+cd /opt/popays-bot
+cp .env.production .env
+source venv/bin/activate
+
+# 5. Install systemd service
+cp popays-bot.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable popays-bot
+systemctl start popays-bot
+
+# 6. Check bot status
+systemctl status popays-bot
+journalctl -u popays-bot -f
+
+# 7. Useful commands
+# Stop bot: systemctl stop popays-bot
+# Start bot: systemctl start popays-bot
+# Restart bot: systemctl restart popays-bot
+# View logs: journalctl -u popays-bot -f
+# Check status: systemctl status popays-bot
