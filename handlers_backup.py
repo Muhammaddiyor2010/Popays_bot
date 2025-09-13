@@ -1,11 +1,11 @@
 from aiogram import Router, F
-from aiogram.types import Message, WebAppData, CallbackQuery
+from aiogram.types import Message, WebAppInfo, WebAppData, CallbackQuery
 from aiogram.filters import Command
 import uuid
 import json
 
-from config import BOT_NAME, BOT_DESCRIPTION, RESTAURANT_NAME, RESTOURAND_FILIAL1, RESTOURAND_FILIAL2, RESTAURANT_PHONE1, RESTAURANT_PHONE2, RESTAURANT_WORKING_HOURS, ORDER_CHANNEL_ID, DEREZLIK_CHANNEL_ID, ADMIN_ID
-from keyboards import get_start_keyboard, get_main_menu_keyboard, get_back_keyboard, get_order_approval_keyboard, get_admin_pagination_keyboard
+from config import BOT_NAME, BOT_DESCRIPTION, RESTAURANT_NAME, RESTAURANT_ADDRESS, RESTOURAND_FILIAL1, RESTOURAND_FILIAL2, RESTAURANT_PHONE1, RESTAURANT_PHONE2, RESTAURANT_WORKING_HOURS, RESTAURANT_FEATURES, ORDER_CHANNEL_ID, DEREZLIK_CHANNEL_ID, ADMIN_ID
+from keyboards import get_start_keyboard, get_main_menu_keyboard, get_back_keyboard, get_order_approval_keyboard
 from database import db
 from utils import calculate_delivery_fee, format_delivery_info
 
@@ -45,8 +45,7 @@ async def cmd_start(message: Message):
 <i>{BOT_DESCRIPTION}</i>
 
 🏪 <b>{RESTAURANT_NAME}</b>
-📍 <i>{RESTOURAND_FILIAL1}</i>
-📍 <i>{RESTOURAND_FILIAL2}</i>
+📍 <i>{RESTAURANT_ADDRESS}</i>
 📞 <i>{RESTAURANT_PHONE1}</i>
 📞 <i>{RESTAURANT_PHONE2}</i>
 🕐 <i>{RESTAURANT_WORKING_HOURS}</i>
@@ -85,43 +84,38 @@ async def cmd_admin(message: Message):
         reply_markup=get_back_keyboard()
     )
 
-async def show_admin_panel(message: Message, page: int = 1):
+async def show_admin_panel(message: Message):
     """Show admin panel after password verification"""
     try:
         # Get statistics
         stats = db.get_statistics()
         
-        # Get recent orders with pagination
-        orders_per_page = 5
-        offset = (page - 1) * orders_per_page
-        recent_orders = db.get_recent_orders_admin(limit=orders_per_page, offset=offset)
-        
-        # Get total orders count for pagination
-        total_orders = db.get_total_orders_count()
+        # Get recent orders
+        recent_orders = db.get_recent_orders_admin(limit=10)
         
         # Get users with orders
         users_with_orders = db.get_all_users_with_orders(limit=20)
         
         # Format admin panel message
         admin_message = f"""
-<b>ADMIN PANEL</b>
+🔧 <b>ADMIN PANEL</b> 🔧
 
-<b>Umumiy statistika:</b>
+📊 <b>Umumiy statistika:</b>
 • Jami buyurtmalar: {stats.get('total_orders', 0)} ta
 • Jami daromad: {stats.get('total_revenue', 0):,.0f} so'm
 • Jami lokatsiyalar: {stats.get('total_locations', 0)} ta
 
-<b>Buyurtmalar holati bo'yicha:</b>
+📈 <b>Buyurtmalar holati bo'yicha:</b>
 """
         
         # Add order status breakdown
         orders_by_status = stats.get('orders_by_status', {})
         status_emojis = {
-            'pending': '[Kutilmoqda]',
-            'accepted': '[Qabul qilingan]', 
-            'rejected': '[Rad etilgan]',
-            'completed': '[Tugallangan]',
-            'cancelled': '[Bekor qilingan]'
+            'pending': '⏳',
+            'accepted': '✅', 
+            'rejected': '❌',
+            'completed': '🎉',
+            'cancelled': '🚫'
         }
         
         status_texts = {
@@ -133,53 +127,45 @@ async def show_admin_panel(message: Message, page: int = 1):
         }
         
         for status, count in orders_by_status.items():
-            emoji = status_emojis.get(status, '[Noma\'lum]')
+            emoji = status_emojis.get(status, '❓')
             text = status_texts.get(status, status)
             admin_message += f"• {emoji} {text}: {count} ta\n"
         
-        admin_message += f"\n<b>Foydalanuvchilar ({len(users_with_orders)} ta):</b>\n"
+        admin_message += f"\n👥 <b>Foydalanuvchilar ({len(users_with_orders)} ta):</b>\n"
         
         # Add users list
         for i, user in enumerate(users_with_orders[:10], 1):
             username = user['username'] if user['username'] != 'N/A' else 'N/A'
             first_name = user['first_name'] if user['first_name'] != 'N/A' else 'N/A'
-            last_order_date = user.get('last_order_date', 'N/A')
-            if last_order_date and last_order_date != 'N/A':
-                last_order_date = str(last_order_date)[:16]
-            
             admin_message += f"""
 <b>{i}. @{username}</b> ({first_name})
-ID: {user['user_id']}
-Buyurtmalar: {user['order_count']} ta
-Jami sarflangan: {user['total_spent']:,.0f} so'm
-Oxirgi buyurtma: {last_order_date}
+🆔 ID: {user['user_id']}
+📦 Buyurtmalar: {user['order_count']} ta
+💰 Jami sarflangan: {user['total_spent']:,.0f} so'm
+📅 Oxirgi buyurtma: {user['last_order_date'][:16]}
 """
         
         if len(users_with_orders) > 10:
             admin_message += f"\n... va yana {len(users_with_orders) - 10} ta foydalanuvchi"
         
-        admin_message += f"\n\n<b>Buyurtmalar (sahifa {page}):</b>\n"
+        admin_message += f"\n\n📋 <b>So'nggi buyurtmalar ({len(recent_orders)} ta):</b>\n"
         
         # Add recent orders
-        for i, order in enumerate(recent_orders, 1):
-            status_emoji = status_emojis.get(order['status'], '[Noma\'lum]')
+        for i, order in enumerate(recent_orders[:5], 1):
+            status_emoji = status_emojis.get(order['status'], '❓')
             customer_name = order['customer_name'] if order['customer_name'] != 'N/A' else 'N/A'
             username = order['username'] if order['username'] != 'N/A' else 'N/A'
-            created_at = order.get('created_at', 'N/A')
-            if created_at and created_at != 'N/A':
-                created_at = str(created_at)[:16]
-            
             admin_message += f"""
 <b>{i}. Buyurtma #{order['id']}</b> {status_emoji}
-Mijoz: {customer_name} (@{username})
-Summa: {order['total_amount']:,.0f} so'm
-Sana: {created_at}
+👤 Mijoz: {customer_name} (@{username})
+💰 Summa: {order['total_amount']:,.0f} so'm
+📅 Sana: {order['created_at'][:16]}
 """
         
-        # Create pagination keyboard
-        keyboard = get_admin_pagination_keyboard(page, total_orders, orders_per_page)
+        if len(recent_orders) > 5:
+            admin_message += f"\n... va yana {len(recent_orders) - 5} ta buyurtma"
         
-        await message.answer(admin_message, reply_markup=keyboard)
+        await message.answer(admin_message, reply_markup=get_main_menu_keyboard())
         
     except Exception as e:
         print(f"❌ Error in admin panel: {e}")
@@ -210,26 +196,12 @@ async def web_app_handler(message: Message):
         web_app_data = message.web_app_data
         data = web_app_data.data
         
-        print(f"📥 Received web app data: {data}")
-        print(f"📥 Data length: {len(data)} characters")
-        
         # Parse JSON data
         import json
-        try:
-            order_data = json.loads(data)
-            print(f"✅ JSON parsed successfully. Order type: {order_data.get('type', 'unknown')}")
-        except json.JSONDecodeError as json_error:
-            print(f"❌ JSON parsing error: {json_error}")
-            print(f"❌ Raw data: {data[:200]}...")  # Show first 200 chars
-            try:
-                await message.answer(
-                    "❌ <b>Buyurtma ma'lumotlari noto'g'ri formatda!</b>\n\n"
-                    "Iltimos, qaytadan urinib ko'ring yoki @popays_support ga murojaat qiling.",
-                    reply_markup=get_main_menu_keyboard()
-                )
-            except Exception as json_msg_error:
-                print(f"❌ Error sending JSON error message: {json_msg_error}")
-            return
+        order_data = json.loads(data)
+        
+        print(f"📥 Received web app data: {data}")
+        print(f"📥 Parsed order data: {order_data}")
         
         # Check if this is location_complete, mapData or order data
         if order_data.get('type') == 'location_complete':
@@ -238,6 +210,7 @@ async def web_app_handler(message: Message):
             address = order_data.get('address', 'N/A')
             maps = order_data.get('maps', {})
             
+            print(f"📍 Location complete data received: {order_data}")
             
             # Check if maps links are available
             has_google = bool(maps.get('google'))
@@ -263,10 +236,7 @@ async def web_app_handler(message: Message):
 
 📞 <b>Yordam kerak bo'lsa:</b> @popays_support
 """
-                try:
-                    await message.answer(error_message, reply_markup=get_main_menu_keyboard())
-                except Exception as map_error_msg:
-                    print(f"❌ Error sending map error message: {map_error_msg}")
+                await message.answer(error_message, reply_markup=get_main_menu_keyboard())
                 print(f"❌ Buyurtma rad etildi - xarita linklari yo'q: {order_data}")
                 return
             
@@ -289,10 +259,7 @@ async def web_app_handler(message: Message):
 
 📞 <b>Yordam kerak bo'lsa:</b> @popays_support
 """
-                try:
-                    await message.answer(error_message, reply_markup=get_main_menu_keyboard())
-                except Exception as coord_error_msg:
-                    print(f"❌ Error sending coordinate error message: {coord_error_msg}")
+                await message.answer(error_message, reply_markup=get_main_menu_keyboard())
                 print(f"❌ Buyurtma rad etildi - koordinatalar noto'g'ri: {coordinates}")
                 return
             
@@ -365,20 +332,17 @@ async def web_app_handler(message: Message):
                 print(f"❌ Kanalga yuborishda xatolik: {e}")
                 
             # Send confirmation to user
-            try:
-                await message.answer(
-                    "🗺️ <b>Lokatsiya ma'lumotlari qabul qilindi va kanalga yuborildi!</b>",
-                    reply_markup=get_main_menu_keyboard()
-                )
-                print(f"✅ Location confirmation sent to user")
-            except Exception as loc_msg_error:
-                print(f"❌ Error sending location confirmation: {loc_msg_error}")
+            await message.answer(
+                "🗺️ <b>Lokatsiya ma'lumotlari qabul qilindi va kanalga yuborildi!</b>",
+                reply_markup=get_main_menu_keyboard()
+            )
             
         elif order_data.get('mapData') and not order_data.get('type'):
             # This is mapData structure
             map_data = order_data.get('mapData', {})
             customer = map_data.get('customer', {})
             
+            print(f"📍 Map data received: {map_data}")
             
             # Save map data to database as location
             try:
@@ -459,18 +423,13 @@ async def web_app_handler(message: Message):
                 print(f"❌ Kanalga yuborishda xatolik: {e}")
                 
             # Send confirmation to user
-            try:
-                await message.answer(
-                    "🗺️ <b>Xarita ma'lumotlari qabul qilindi va kanalga yuborildi!</b>",
-                    reply_markup=get_main_menu_keyboard()
-                )
-                print(f"✅ Map data confirmation sent to user")
-            except Exception as map_msg_error:
-                print(f"❌ Error sending map data confirmation: {map_msg_error}")
+            await message.answer(
+                "🗺️ <b>Xarita ma'lumotlari qabul qilindi va kanalga yuborildi!</b>",
+                reply_markup=get_main_menu_keyboard()
+            )
             
         elif order_data.get('type') == 'order':
             # This is order data
-            print(f"🛒 Processing order data...")
             customer = order_data.get('customer', {})
             items = order_data.get('items', [])
             total = order_data.get('total', 0)
@@ -478,10 +437,7 @@ async def web_app_handler(message: Message):
             restaurant = order_data.get('restaurant', 'POPAYS')
             map_data = order_data.get('mapData', {})
             
-            print(f"📊 Order details: customer={customer.get('name', 'N/A')}, items={len(items)}, total={total}")
-            
             # Save order to database
-            print(f"💾 Saving order to database...")
             try:
                 order_id = db.create_order(
                     user_id=message.from_user.id,
@@ -492,16 +448,7 @@ async def web_app_handler(message: Message):
                 print(f"✅ Order saved to database with ID: {order_id}")
             except Exception as db_error:
                 print(f"❌ Error saving order to database: {db_error}")
-                print(f"❌ Error type: {type(db_error).__name__}")
-                try:
-                    await message.answer(
-                        "❌ <b>Buyurtma saqlashda xatolik yuz berdi!</b>\n\n"
-                        "Iltimos, qaytadan urinib ko'ring yoki @popays_support ga murojaat qiling.",
-                        reply_markup=get_main_menu_keyboard()
-                    )
-                except Exception as db_msg_error:
-                    print(f"❌ Error sending database error message: {db_msg_error}")
-                return
+                order_id = str(uuid.uuid4())[:8]  # Fallback ID
             
             # Format order message
             order_message = f"""
@@ -522,6 +469,8 @@ async def web_app_handler(message: Message):
                 coords = map_data['coordinates']
                 map_links = map_data.get('mapLinks', {})
                 
+                print(f"📍 Map data found: {map_data}")
+                print(f"📍 Coordinates: {coords}")
                 
                 # Calculate delivery fee based on coordinates
                 try:
@@ -533,13 +482,10 @@ async def web_app_handler(message: Message):
                         # Check if delivery is available (within 20km)
                         if not delivery_info.get('is_delivery_available', True):
                             # Distance is too far, send error message to user
-                            try:
-                                await message.answer(
-                                    delivery_info['error_message'],
-                                    reply_markup=get_main_menu_keyboard()
-                                )
-                            except Exception as delivery_msg_error:
-                                print(f"❌ Error sending delivery error message: {delivery_msg_error}")
+                            await message.answer(
+                                delivery_info['error_message'],
+                                reply_markup=get_main_menu_keyboard()
+                            )
                             return
                         
                         delivery_fee = delivery_info['total_delivery_fee']
@@ -555,18 +501,13 @@ async def web_app_handler(message: Message):
                         )
                         
                         print(f"💰 Delivery fee calculated: {delivery_fee} sum")
+                        print(f"📍 Nearest branch: {delivery_info['nearest_branch']}")
+                        print(f"📏 Distance: {delivery_info['distance_km']} km")
                         
                 except Exception as e:
                     print(f"❌ Error calculating delivery fee: {e}")
-                    # Continue without delivery fee if calculation fails
-                    delivery_fee = 0
-                    delivery_info_text = ""
                 
                 order_message += f"""
-📍 <b>Lokatsiya ma'lumotlari:</b>
-• Koordinatalar: {coords.get('latitude', 'N/A')}, {coords.get('longitude', 'N/A')}
-• Aniqlik: {coords.get('accuracy', 'N/A')}m
-"""
                 
                 # Add delivery fee information
                 if delivery_info_text:
@@ -581,6 +522,8 @@ async def web_app_handler(message: Message):
                         order_message += f"• Yandex Maps: {map_links['yandex']}\n"
                     if map_links.get('osm'):
                         order_message += f"• OpenStreetMap: {map_links['osm']}\n"
+            else:
+                print(f"📍 No map data found in order: {order_data}")
             
             # Add items if available
             if items:
@@ -606,48 +549,26 @@ async def web_app_handler(message: Message):
                 else:
                     order_message += f"\n💰 <b>Jami: {total:,} so'm</b>"
             
-            order_message += f"\n🏪 <b>Restoran:</b> {restaurant}"
-            order_message += f"\n🏢 <b>Filial:</b> {order_data.get('branch', 'N/A')}"
-            order_message += f"\n⏰ <b>Vaqt:</b> {timestamp}"
-            order_message += f"\n📱 <b>Telegram:</b> @{message.from_user.username or 'N/A'}"
-            order_message += f"\n🆔 <b>User ID:</b> {message.from_user.id}"
-            order_message += f"\n🆔 <b>Order ID:</b> {order_id}"
+            order_message += f"""
+🏪 <b>Restoran:</b> {restaurant}
+🏢 <b>Filial:</b> {order_data.get('branch', 'N/A')}
+⏰ <b>Vaqt:</b> {timestamp}
+📱 <b>Telegram:</b> @{message.from_user.username or 'N/A'}
+🆔 <b>User ID:</b> {message.from_user.id}
+🆔 <b>Order ID:</b> {order_id}
+"""
             
-            # Create short message for user
-            customer_name = customer.get('name', 'N/A')
-            customer_phone = customer.get('phone', 'N/A')
-            
-            user_message = f"✅ <b>Buyurtma qabul qilindi!</b>\n\n"
-            user_message += f"👤 <b>Ism:</b> {customer_name}\n"
-            user_message += f"📞 <b>Telefon:</b> {customer_phone}\n\n"
-            
-            # Add items
-            if items:
-                user_message += "🍽️ <b>Buyurtma:</b>\n"
-                for item in items[:3]:  # Show first 3 items
-                    name = item.get('name', 'N/A')
-                    quantity = item.get('quantity', 1)
-                    selected_size = item.get('selectedSize', '')
-                    if selected_size:
-                        user_message += f"• {name} ({selected_size}) x{quantity}\n"
-                    else:
-                        user_message += f"• {name} x{quantity}\n"
-                if len(items) > 3:
-                    user_message += f"• ... va yana {len(items) - 3} ta\n"
-            
-            # Add delivery fee
-            if delivery_fee > 0:
-                user_message += f"\n🚚 <b>Yetkazib berish:</b> {delivery_fee:,} so'm"
-            
-            # User message removed - only channel gets the order details
-            print(f"📤 User confirmation message skipped - only channel notification sent")
+            # Send order to admin
+            await message.answer(
+                "✅ <b>Buyurtma qabul qilindi!</b>",
+                reply_markup=get_main_menu_keyboard()
+            )
             
             # Determine which channel to send the order to based on branch
             target_channel_id = get_order_channel_id(order_data.get('branch', ''))
             channel_name = "Derezlik filiali" if target_channel_id == DEREZLIK_CHANNEL_ID else "Kosmonavt filiali"
             
             # Send detailed order to appropriate channel with inline keyboard
-            print(f"📤 Sending order to channel: {target_channel_id} ({channel_name})")
             try:
                 await message.bot.send_message(
                     target_channel_id, 
@@ -657,13 +578,20 @@ async def web_app_handler(message: Message):
                 print(f"✅ Buyurtma kanalga yuborildi: {target_channel_id} ({channel_name}) - Order ID: {order_id}")
                 
                 # If map data available, also send location
+                print(f"🔍 DEBUG: map_data exists: {bool(map_data)}")
                 if map_data:
+                    print(f"🔍 DEBUG: map_data content: {map_data}")
                     coords = map_data.get('coordinates', {})
+                    print(f"🔍 DEBUG: coordinates exists: {bool(coords)}")
                     if coords:
+                        print(f"🔍 DEBUG: coordinates content: {coords}")
                         lat = coords.get('latitude')
                         lon = coords.get('longitude')
+                        print(f"🔍 DEBUG: latitude: {lat} (type: {type(lat)})")
+                        print(f"🔍 DEBUG: longitude: {lon} (type: {type(lon)})")
                         
                         if lat and lon:
+                            print(f"📍 Attempting to send location to channel: {coords}")
                             try:
                                 # Send location as Telegram location
                                 await message.bot.send_location(
@@ -674,6 +602,13 @@ async def web_app_handler(message: Message):
                                 print(f"✅ Lokatsiya kanalga yuborildi: {lat}, {lon} ({channel_name})")
                             except Exception as loc_error:
                                 print(f"❌ Lokatsiya yuborishda xatolik: {loc_error}")
+                                print(f"❌ Error details: {type(loc_error).__name__}: {str(loc_error)}")
+                        else:
+                            print(f"❌ Invalid coordinates: lat={lat}, lon={lon}")
+                    else:
+                        print(f"❌ No coordinates in map_data")
+                else:
+                    print(f"❌ No map_data found")
                 
             except Exception as e:
                 print(f"❌ Kanalga yuborishda xatolik: {e}")
@@ -704,36 +639,19 @@ async def web_app_handler(message: Message):
                             
                 except Exception as admin_error:
                     print(f"❌ Admin ga yuborishda xatolik: {admin_error}")
-                    # If even admin notification fails, at least inform the user
-                    await message.answer(
-                        "⚠️ <b>Buyurtma qabul qilindi, lekin kanalga yuborishda muammo bor!</b>\n\n"
-                        "Iltimos, @popays_support ga murojaat qiling.",
-                        reply_markup=get_main_menu_keyboard()
-                    )
+                    # If admin ID not set, send to the user who sent the order
+                    await message.answer(f"📋 Buyurtma ma'lumotlari:\n{order_message}")
                 
         else:
-            try:
-                await message.answer("❌ <b>Noto'g'ri buyurtma formati!</b>")
-            except Exception as format_error:
-                print(f"❌ Error sending format error message: {format_error}")
+            await message.answer("❌ <b>Noto'g'ri buyurtma formati!</b>")
             
+    except json.JSONDecodeError:
+        await message.answer("❌ <b>Buyurtma ma'lumotlari noto'g'ri formatda!</b>")
     except Exception as e:
-        print(f"❌ Web app handler error: {e}")
-        print(f"❌ Error type: {type(e).__name__}")
-        try:
-            await message.answer(
-                "❌ <b>Buyurtma qayta ishlashda xatolik yuz berdi!</b>\n\n"
-                "Iltimos, qaytadan urinib ko'ring yoki @popays_support ga murojaat qiling.\n\n"
-                "🔄 <b>Qayta urinish uchun:</b> /start",
-                reply_markup=get_main_menu_keyboard()
-            )
-        except Exception as main_error_msg:
-            print(f"❌ Error sending main error message: {main_error_msg}")
-            # Last resort - try to send a very simple message
-            try:
-                await message.answer("❌ Xatolik yuz berdi. /start ni bosing.")
-            except:
-                print(f"❌ Complete message sending failure")
+        await message.answer(f"❌ <b>Xatolik yuz berdi:</b> {str(e)}")
+        print(f"Web app handler error: {e}")
+
+
 
 @router.message(F.text == "📋 Mening buyurtmalarim")
 async def my_orders_handler(message: Message):
@@ -753,16 +671,16 @@ async def my_orders_handler(message: Message):
             return
         
         # Format orders message
-        orders_text = f"<b>Sizning buyurtmalaringiz</b> ({len(orders)} ta)\n\n"
+        orders_text = f"📋 <b>Sizning buyurtmalaringiz</b> ({len(orders)} ta)\n\n"
         
         for i, order in enumerate(orders, 1):
             status_emoji = {
-                'pending': '[Kutilmoqda]',
-                'accepted': '[Qabul qilingan]',
-                'rejected': '[Rad etilgan]',
-                'completed': '[Tugallangan]',
-                'cancelled': '[Bekor qilingan]'
-            }.get(order['status'], '[Noma\'lum]')
+                'pending': '⏳',
+                'accepted': '✅',
+                'rejected': '❌',
+                'completed': '🎉',
+                'cancelled': '🚫'
+            }.get(order['status'], '❓')
             
             status_text = {
                 'pending': 'Kutilmoqda',
@@ -772,19 +690,14 @@ async def my_orders_handler(message: Message):
                 'cancelled': 'Bekor qilingan'
             }.get(order['status'], order['status'])
             
-            # Safe date formatting
-            created_at = order.get('created_at', 'N/A')
-            if created_at and created_at != 'N/A':
-                created_at = str(created_at)[:16]
-            
             orders_text += f"<b>{i}. Buyurtma #{order['id']}</b>\n"
             orders_text += f"{status_emoji} <b>Holat:</b> {status_text}\n"
-            orders_text += f"<b>Summa:</b> {order['total_amount']:,.0f} so'm\n"
-            orders_text += f"<b>Sana:</b> {created_at}\n"
+            orders_text += f"💰 <b>Summa:</b> {order['total_amount']:,.0f} so'm\n"
+            orders_text += f"📅 <b>Sana:</b> {order['created_at'][:16]}\n"
             
             # Add items if available
             if order.get('items'):
-                orders_text += "<b>Taomlar:</b>\n"
+                orders_text += "🍽️ <b>Taomlar:</b>\n"
                 for item in order['items'][:3]:  # Show first 3 items
                     size_text = f" ({item['selectedSize']})" if item.get('selectedSize') else ""
                     orders_text += f"• {item['name']}{size_text} x{item['quantity']}\n"
@@ -795,8 +708,8 @@ async def my_orders_handler(message: Message):
         
         # Add summary
         total_spent = sum(order['total_amount'] for order in orders)
-        orders_text += f"<b>Jami:</b> {len(orders)} ta buyurtma\n"
-        orders_text += f"<b>Jami sarflangan:</b> {total_spent:,.0f} so'm"
+        orders_text += f"📊 <b>Jami:</b> {len(orders)} ta buyurtma\n"
+        orders_text += f"💰 <b>Jami sarflangan:</b> {total_spent:,.0f} so'm"
         
         await message.answer(orders_text, reply_markup=get_main_menu_keyboard())
         
@@ -814,6 +727,7 @@ async def about_handler(message: Message):
 ℹ️ <b>Biz haqimizda</b>
 
 🏪 <b>{RESTAURANT_NAME}</b>
+📍 <i>{RESTAURANT_ADDRESS}</i>
 📍 <i>{RESTOURAND_FILIAL1}</i>
 📍 <i>{RESTOURAND_FILIAL2}</i>
 📞 <i>{RESTAURANT_PHONE1}</i>
@@ -823,7 +737,7 @@ async def about_handler(message: Message):
 🍽️ <b>Bizning taomlarimiz:</b>
 • Tez va qulay yetkazib berish
 • Professional oshpazlar
-• 8:00 dan 3:00 gacha xizmat ko'rstatish
+• 24/7 mijozlar xizmati
 
 🎉 <b>Maxsus imkoniyatlar:</b>
 • Buyurtma berib o'z instgaramizga storis qo'ysangiz sovg'a
@@ -831,6 +745,8 @@ async def about_handler(message: Message):
 """
     
     await message.answer(about_text, reply_markup=get_main_menu_keyboard())
+
+
 
 @router.message(F.text == "🔙 Orqaga")
 async def back_handler(message: Message):
@@ -901,7 +817,7 @@ async def confirm_order_callback(callback: CallbackQuery):
         
         # Look for customer user ID in the message
         import re
-        user_id_match = re.search(r'🆔 <b>User ID:</b> (\d+)', message_text)
+        user_id_match = re.search(r'👤 \*\*Customer User ID: (\d+)\*\*', message_text)
         if user_id_match:
             customer_user_id = int(user_id_match.group(1))
         
@@ -933,25 +849,16 @@ async def confirm_order_callback(callback: CallbackQuery):
                     if len(items) > 3:
                         items_text += f"• ... va yana {len(items) - 3} ta\n"
                 
-                # Create detailed customer message
-                customer_message = f"✅ <b>Buyurtmangiz qabul qilindi!</b>\n\n"
-                customer_message += f"🆔 <b>Buyurtma raqami:</b> #{order_id}\n"
-                customer_message += f"👤 <b>Ism:</b> {customer_name}\n"
-                customer_message += f"📞 <b>Telefon:</b> {customer_phone}\n\n"
-                
-                if items_text:
-                    customer_message += f"🍽️ <b>Buyurtma:</b>\n{items_text}"
-                
-                if delivery_fee > 0:
-                    customer_message += f"💰 <b>Taomlar:</b> {total_amount:,} so'm\n"
-                    customer_message += f"🚚 <b>Yetkazib berish:</b> {delivery_fee:,} so'm\n"
-                    customer_message += f"💳 <b>JAMI:</b> {total_amount + delivery_fee:,} so'm"
-                else:
-                    customer_message += f"💰 <b>Jami:</b> {total_amount:,} so'm"
-                
-                customer_message += f"\n\n⏰ <b>Buyurtma qabul qilindi!</b>\n"
-                customer_message += f"📦 Tez orada tayyorlanadi va yetkazib beriladi.\n"
-                customer_message += f"📞 Savollar uchun: @popays_support"
+                customer_message = f"""
+✅ <b>BUYURTMA QABUL QILINDI!</b>
+
+👤 <b>Ism:</b> {customer_name}
+📞 <b>Telefon:</b> {customer_phone}
+
+🍽️ <b>Buyurtma:</b>
+{items_text}
+🚚 <b>Yetkazib berish:</b> {delivery_fee:,} so'm
+"""
                 await callback.bot.send_message(
                     chat_id=customer_user_id,
                     text=customer_message,
@@ -1008,95 +915,6 @@ async def accept_order_callback(callback: CallbackQuery):
         
         # Update order status in database
         try:
-            db.update_order_status(order_id, "accepted")
-            print(f"✅ Order {order_id} status updated to 'accepted' in database")
-        except Exception as db_error:
-            print(f"❌ Error updating order status in database: {db_error}")
-        
-        # Extract customer user ID from the message
-        message_text = callback.message.text
-        customer_user_id = None
-        
-        # Look for customer user ID in the message
-        import re
-        user_id_match = re.search(r'🆔 <b>User ID:</b> (\d+)', message_text)
-        if user_id_match:
-            customer_user_id = int(user_id_match.group(1))
-        
-        # Edit the message to show it's accepted
-        original_text = callback.message.text
-        accepted_text = f"{original_text}\n\n✅ <b>QABUL QILINDI</b> #qabul_qilingan\n👨‍💼 <b>Admin:</b> @{callback.from_user.username or callback.from_user.first_name}"
-        
-        await callback.message.edit_text(
-            accepted_text,
-        )
-        
-        # Send acceptance notification to customer if user ID found
-        if customer_user_id:
-            try:
-                # Get order details for notification
-                order_details = db.get_order(order_id)
-                customer_name = order_details.get('customer_name', 'N/A') if order_details else 'N/A'
-                customer_phone = order_details.get('customer_phone', 'N/A') if order_details else 'N/A'
-                total_amount = order_details.get('total_amount', 0) if order_details else 0
-                delivery_fee = order_details.get('delivery_fee', 0) if order_details else 0
-                
-                # Get ordered products
-                items_text = ""
-                if order_details and order_details.get('items'):
-                    items = order_details['items']
-                    for item in items[:3]:  # Show first 3 items
-                        size_text = f" ({item.get('selectedSize', '')})" if item.get('selectedSize') else ""
-                        items_text += f"• {item.get('name', 'N/A')}{size_text} x{item.get('quantity', 1)}\n"
-                    if len(items) > 3:
-                        items_text += f"• ... va yana {len(items) - 3} ta\n"
-                
-                # Create detailed customer message
-                customer_message = f"✅ <b>Buyurtmangiz qabul qilindi!</b>\n\n"
-                customer_message += f"🆔 <b>Buyurtma raqami:</b> #{order_id}\n"
-                customer_message += f"👤 <b>Ism:</b> {customer_name}\n"
-                customer_message += f"📞 <b>Telefon:</b> {customer_phone}\n\n"
-                
-                if items_text:
-                    customer_message += f"🍽️ <b>Buyurtma:</b>\n{items_text}"
-                
-                if delivery_fee > 0:
-                    customer_message += f"💰 <b>Taomlar:</b> {total_amount:,} so'm\n"
-                    customer_message += f"🚚 <b>Yetkazib berish:</b> {delivery_fee:,} so'm\n"
-                    customer_message += f"💳 <b>JAMI:</b> {total_amount + delivery_fee:,} so'm"
-                else:
-                    customer_message += f"💰 <b>Jami:</b> {total_amount:,} so'm"
-                
-                customer_message += f"\n\n⏰ <b>Buyurtma qabul qilindi!</b>\n"
-                customer_message += f"📦 Tez orada tayyorlanadi va yetkazib beriladi.\n"
-                customer_message += f"📞 Savollar uchun: @popays_support"
-                await callback.bot.send_message(
-                    chat_id=customer_user_id,
-                    text=customer_message,
-                )
-                print(f"✅ Customer acceptance notification sent to user {customer_user_id} for order {order_id}")
-            except Exception as notify_error:
-                print(f"❌ Failed to notify customer {customer_user_id}: {notify_error}")
-        else:
-            print(f"❌ Customer user ID not found in message for order {order_id}")
-        
-        # Answer the callback to remove loading state
-        await callback.answer("✅ Buyurtma qabul qilindi va mijozga xabar yuborildi!", show_alert=True)
-        
-        print(f"✅ Order {order_id} accepted by {callback.from_user.id}")
-        
-    except Exception as e:
-        await callback.answer("❌ Xatolik yuz berdi!", show_alert=True)
-        print(f"Error accepting order: {e}")
-
-@router.callback_query(F.data.startswith("reject_order_"))
-async def reject_order_callback(callback: CallbackQuery):
-    """Handle order rejection by admin"""
-    try:
-        order_id = callback.data.replace("reject_order_", "")
-        
-        # Update order status in database
-        try:
             db.update_order_status(order_id, "rejected")
             print(f"✅ Order {order_id} status updated to 'rejected' in database")
         except Exception as db_error:
@@ -1108,7 +926,7 @@ async def reject_order_callback(callback: CallbackQuery):
         
         # Look for customer user ID in the message
         import re
-        user_id_match = re.search(r'🆔 <b>User ID:</b> (\d+)', message_text)
+        user_id_match = re.search(r'👤 \*\*Customer User ID: (\d+)\*\*', message_text)
         if user_id_match:
             customer_user_id = int(user_id_match.group(1))
         
@@ -1123,16 +941,20 @@ async def reject_order_callback(callback: CallbackQuery):
         # Send rejection notification to customer if user ID found
         if customer_user_id:
             try:
-                # Get order details for rejection message
-                order_details = db.get_order(order_id)
-                customer_name = order_details.get('customer_name', 'N/A') if order_details else 'N/A'
-                
-                customer_message = f"😔 <b>Buyurtmangiz rad etildi</b>\n\n"
-                customer_message += f"🆔 <b>Buyurtma raqami:</b> #{order_id}\n"
-                customer_message += f"👤 <b>Ism:</b> {customer_name}\n\n"
-                customer_message += f"❌ <b>Sabab:</b> Buyurtma qabul qilinmadi.\n\n"
-                customer_message += f"📞 <b>Batafsil ma'lumot uchun:</b> @popays_support\n"
-                customer_message += f"🔄 <b>Yangi buyurtma:</b> /start"
+                customer_message = f"""
+😔 <b>BUYURTMANGIZ RAD ETILDI</b>
+
+❌ Afsuski, sizning buyurtmangiz qabul qilinmadi.
+
+👨‍💼 <b>Admin:</b> @{callback.from_user.username or callback.from_user.first_name}
+🆔 <b>Buyurtma ID:</b> {order_id}
+⏰ <b>Rad etilgan vaqt:</b> {callback.message.date.strftime('%d.%m.%Y %H:%M')}
+
+📞 <b>Sababni bilish uchun:</b> @popays_support
+🔄 <b>Yangi buyurtma berish:</b> /start
+
+🍕 <b>POPAYS Fast Food</b> - Qo'qondagi eng yaxshi taomlar!
+"""
                 await callback.bot.send_message(
                     chat_id=customer_user_id,
                     text=customer_message,
@@ -1231,24 +1053,3 @@ async def request_location(message: Message):
         "Telegram'da lokatsiya tugmasini bosing va joylashuvingizni yuboring.",
         parse_mode="HTML"
     )
-
-@router.callback_query(F.data.startswith("admin_page_"))
-async def admin_pagination_callback(callback: CallbackQuery):
-    """Handle admin panel pagination"""
-    try:
-        page = int(callback.data.replace("admin_page_", ""))
-        await show_admin_panel(callback.message, page)
-        await callback.answer()
-    except Exception as e:
-        print(f"Error in admin pagination: {e}")
-        await callback.answer("❌ Xatolik yuz berdi!", show_alert=True)
-
-@router.callback_query(F.data == "admin_main_menu")
-async def admin_main_menu_callback(callback: CallbackQuery):
-    """Handle return to main menu from admin panel"""
-    try:
-        await cmd_start(callback.message)
-        await callback.answer()
-    except Exception as e:
-        print(f"Error returning to main menu: {e}")
-        await callback.answer("❌ Xatolik yuz berdi!", show_alert=True)

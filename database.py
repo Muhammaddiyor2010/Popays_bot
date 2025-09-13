@@ -31,6 +31,10 @@ class DatabaseManager:
                         customer_location TEXT,
                         order_data TEXT NOT NULL,
                         total_amount REAL,
+                        latitude REAL,
+                        longitude REAL,
+                        delivery_fee INTEGER DEFAULT 0,
+                        nearest_branch TEXT,
                         status TEXT DEFAULT 'pending',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -72,8 +76,44 @@ class DatabaseManager:
                 conn.commit()
                 logger.info("Database initialized successfully")
                 
+                # Add new columns to existing orders table if they don't exist
+                self._migrate_orders_table()
+                
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
+
+    def _migrate_orders_table(self):
+        """Add new columns to orders table if they don't exist"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Check if latitude column exists
+                cursor.execute("PRAGMA table_info(orders)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                # Add missing columns
+                if 'latitude' not in columns:
+                    cursor.execute("ALTER TABLE orders ADD COLUMN latitude REAL")
+                    logger.info("Added latitude column to orders table")
+                
+                if 'longitude' not in columns:
+                    cursor.execute("ALTER TABLE orders ADD COLUMN longitude REAL")
+                    logger.info("Added longitude column to orders table")
+                
+                if 'delivery_fee' not in columns:
+                    cursor.execute("ALTER TABLE orders ADD COLUMN delivery_fee INTEGER DEFAULT 0")
+                    logger.info("Added delivery_fee column to orders table")
+                
+                if 'nearest_branch' not in columns:
+                    cursor.execute("ALTER TABLE orders ADD COLUMN nearest_branch TEXT")
+                    logger.info("Added nearest_branch column to orders table")
+                
+                conn.commit()
+                logger.info("Orders table migration completed successfully")
+                
+        except Exception as e:
+            logger.error(f"Error migrating orders table: {e}")
             raise
     
     def _migrate_database(self, cursor):
@@ -264,9 +304,13 @@ class DatabaseManager:
                     'customer_location': order_row[6],
                     'order_data': json.loads(order_row[7]),
                     'total_amount': order_row[8],
-                    'status': order_row[9],
-                    'created_at': order_row[10],
-                    'updated_at': order_row[11],
+                    'latitude': order_row[9],
+                    'longitude': order_row[10],
+                    'delivery_fee': order_row[11] or 0,
+                    'nearest_branch': order_row[12],
+                    'status': order_row[13],
+                    'created_at': order_row[14],
+                    'updated_at': order_row[15],
                     'items': [
                         {
                             'name': item[0],
@@ -368,9 +412,13 @@ class DatabaseManager:
                         'customer_location': order_row[6],
                         'order_data': json.loads(order_row[7]),
                         'total_amount': order_row[8],
-                        'status': order_row[9],
-                        'created_at': order_row[10],
-                        'updated_at': order_row[11],
+                        'latitude': order_row[9],
+                        'longitude': order_row[10],
+                        'delivery_fee': order_row[11] or 0,
+                        'nearest_branch': order_row[12],
+                        'status': order_row[13],
+                        'created_at': order_row[14],
+                        'updated_at': order_row[15],
                         'items': [
                             {
                                 'name': item[0],
@@ -420,9 +468,13 @@ class DatabaseManager:
                         'customer_location': order_row[6],
                         'order_data': json.loads(order_row[7]),
                         'total_amount': order_row[8],
-                        'status': order_row[9],
-                        'created_at': order_row[10],
-                        'updated_at': order_row[11],
+                        'latitude': order_row[9],
+                        'longitude': order_row[10],
+                        'delivery_fee': order_row[11] or 0,
+                        'nearest_branch': order_row[12],
+                        'status': order_row[13],
+                        'created_at': order_row[14],
+                        'updated_at': order_row[15],
                         'items': [
                             {
                                 'name': item[0],
@@ -515,15 +567,15 @@ class DatabaseManager:
             logger.error(f"Error getting users with orders: {e}")
             return []
     
-    def get_recent_orders_admin(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get recent orders for admin panel"""
+    def get_recent_orders_admin(self, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get recent orders for admin panel with pagination"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute('''
-                    SELECT * FROM orders ORDER BY created_at DESC LIMIT ?
-                ''', (limit,))
+                    SELECT * FROM orders ORDER BY created_at DESC LIMIT ? OFFSET ?
+                ''', (limit, offset))
                 
                 orders = cursor.fetchall()
                 
@@ -547,9 +599,13 @@ class DatabaseManager:
                         'customer_location': order_row[6],
                         'order_data': json.loads(order_row[7]) if order_row[7] else {},
                         'total_amount': order_row[8],
-                        'status': order_row[9],
-                        'created_at': order_row[10],
-                        'updated_at': order_row[11],
+                        'latitude': order_row[9],
+                        'longitude': order_row[10],
+                        'delivery_fee': order_row[11] or 0,
+                        'nearest_branch': order_row[12],
+                        'status': order_row[13],
+                        'created_at': order_row[14],
+                        'updated_at': order_row[15],
                         'items': [
                             {
                                 'name': item[0],
@@ -566,6 +622,32 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting recent orders for admin: {e}")
             return []
+
+    def get_total_orders_count(self) -> int:
+        """Get total count of orders"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) FROM orders')
+                return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"Error getting total orders count: {e}")
+            return 0
+
+    def update_order_location_and_fee(self, order_id: int, latitude: float, longitude: float, delivery_fee: int, nearest_branch: str):
+        """Update order with location and delivery fee"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE orders 
+                    SET latitude = ?, longitude = ?, delivery_fee = ?, nearest_branch = ?
+                    WHERE id = ?
+                """, (latitude, longitude, delivery_fee, nearest_branch, order_id))
+                conn.commit()
+                logger.info(f"Updated order {order_id} with location and delivery fee")
+        except Exception as e:
+            logger.error(f"Error updating order location and fee: {e}")
 
 # Global database instance
 db = DatabaseManager()
