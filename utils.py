@@ -46,8 +46,8 @@ def find_nearest_branch(customer_lat: float, customer_lon: float) -> Tuple[str, 
 
 def calculate_delivery_fee(customer_lat: float, customer_lon: float, order_amount: int) -> Dict[str, Any]:
     """
-    Calculate delivery fee based on distance and order amount
-    Returns dict with fee details
+    Show delivery reminder instead of calculating actual fee
+    Returns dict with reminder details
     """
     # Find nearest branch
     nearest_branch_key, distance = find_nearest_branch(customer_lat, customer_lon)
@@ -64,64 +64,43 @@ def calculate_delivery_fee(customer_lat: float, customer_lon: float, order_amoun
             'error_message': f"❌ Kechirasiz, sizning joylashuvingiz {distance:.1f} km uzoqlikda.\n\nSizga yetkazib bera olmaymiz. Maksimal yetkazib berish masofasi {MAX_DELIVERY_DISTANCE} km."
         }
     
-    # Base delivery fee
-    base_fee = 0
-    
-    # Check if order amount qualifies for free delivery
-    from config import FREE_DELIVERY_THRESHOLD
-    if order_amount >= FREE_DELIVERY_THRESHOLD:
-        # Free delivery for large orders regardless of distance
-        distance_fee = 0
-        total_fee = 0
-        is_free = True
+    # Show reminder instead of calculating actual fee
+    if distance > FREE_DELIVERY_RADIUS:
+        # Distance is more than 3km - show reminder about possible delivery fee
+        reminder_message = f"ℹ️ <b>Eslatma:</b> Sizning joylashuvingiz {distance:.1f} km uzoqlikda.\n\nAgar 3km dan uzoq bo'lsa, yetkazib berish uchun pul olinishi mumkin."
+        is_free = False
     else:
-        # Check distance-based fee
-        if distance > FREE_DELIVERY_RADIUS:
-            # Calculate additional fee for distance over 3km
-            extra_distance = distance - FREE_DELIVERY_RADIUS
-            distance_fee = math.ceil(extra_distance) * DISTANCE_FEE_PER_KM  # Round up to full km
-            is_free = False
-        else:
-            # Within free delivery radius
-            distance_fee = 0
-            is_free = False
-        
-        # Base delivery fee
-        from config import DELIVERY_FEE
-        total_fee = DELIVERY_FEE + distance_fee
+        # Within 3km - free delivery
+        reminder_message = f"✅ <b>Yetkazib berish bepul!</b>\n\nSizning joylashuvingiz {distance:.1f} km uzoqlikda (3km dan kam)."
+        is_free = True
     
     return {
         'nearest_branch': nearest_branch['name'],
         'nearest_branch_address': nearest_branch['address'],
         'distance_km': round(distance, 2),
-        'base_delivery_fee': DELIVERY_FEE,
-        'distance_fee': distance_fee,
-        'total_delivery_fee': total_fee,
+        'total_delivery_fee': 0,  # No actual fee calculation
         'is_free_delivery': is_free,
         'is_delivery_available': True,
-        'free_delivery_threshold': FREE_DELIVERY_THRESHOLD
+        'reminder_message': reminder_message
     }
 
 def format_delivery_info(delivery_info: Dict[str, Any]) -> str:
     """
-    Format delivery information for display
+    Format delivery information for display with reminder message
     """
     info = f"📍 <b>Eng yaqin filial:</b> {delivery_info['nearest_branch']}\n"
     info += f"🏪 <b>Manzil:</b> {delivery_info['nearest_branch_address']}\n"
     info += f"📏 <b>Masofa:</b> {delivery_info['distance_km']} km\n\n"
     
-    if delivery_info['is_free_delivery']:
-        info += "🆓 <b>Yetkazib berish bepul!</b>\n"
-        info += f"(Buyurtma miqdori {delivery_info['free_delivery_threshold']:,} so'm dan ortiq)"
+    # Use the reminder message instead of fee calculation
+    if 'reminder_message' in delivery_info:
+        info += delivery_info['reminder_message']
     else:
-        info += "💰 <b>Yetkazib berish to'lovi:</b>\n"
-        
-        if delivery_info['distance_fee'] > 0:
-            info += f"• Asosiy to'lov: {delivery_info['base_delivery_fee']:,} so'm\n"
-            info += f"• Masofa to'lovi ({delivery_info['distance_km']} km): {delivery_info['distance_fee']:,} so'm\n"
-            info += f"• <b>Jami: {delivery_info['total_delivery_fee']:,} so'm</b>"
+        # Fallback for backward compatibility
+        if delivery_info['is_free_delivery']:
+            info += "🆓 <b>Yetkazib berish bepul!</b>"
         else:
-            info += f"• {delivery_info['total_delivery_fee']:,} so'm"
+            info += "ℹ️ <b>Eslatma:</b> Yetkazib berish uchun pul olinishi mumkin."
     
     return info
 

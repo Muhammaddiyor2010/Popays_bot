@@ -71,11 +71,28 @@ async def cmd_admin(message: Message):
     
     # Check if user is admin
     if user_id != ADMIN_ID:
+        # Log unauthorized admin access attempt
+        db.log_admin_access(
+            user_id=user_id,
+            username=message.from_user.username or '',
+            first_name=message.from_user.first_name or '',
+            action="unauthorized_admin_access_attempt",
+            details=f"User {user_id} tried to access admin panel"
+        )
         await message.answer(
             "❌ Siz admin emassiz! Bu buyruq faqat admin uchun.",
             reply_markup=get_main_menu_keyboard()
         )
         return
+    
+    # Log admin access attempt
+    db.log_admin_access(
+        user_id=user_id,
+        username=message.from_user.username or '',
+        first_name=message.from_user.first_name or '',
+        action="admin_access_requested",
+        details="Admin requested access to admin panel"
+    )
     
     # Ask for password
     waiting_for_admin_password.add(user_id)
@@ -88,6 +105,15 @@ async def cmd_admin(message: Message):
 async def show_admin_panel(message: Message, page: int = 1):
     """Show admin panel after password verification"""
     try:
+        # Log successful admin panel access
+        db.log_admin_access(
+            user_id=message.from_user.id,
+            username=message.from_user.username or '',
+            first_name=message.from_user.first_name or '',
+            action="admin_panel_accessed",
+            details=f"Admin panel accessed, page {page}"
+        )
+        
         # Get statistics
         stats = db.get_statistics()
         
@@ -855,9 +881,25 @@ async def password_handler(message: Message):
         
         # Check password
         if message.text == ADMIN_PASSWORD:
+            # Log successful password verification
+            db.log_admin_access(
+                user_id=user_id,
+                username=message.from_user.username or '',
+                first_name=message.from_user.first_name or '',
+                action="admin_password_verified",
+                details="Admin password verified successfully"
+            )
             await message.answer("✅ <b>Parol to'g'ri! Admin panelga kirdingiz.</b>")
             await show_admin_panel(message)
         else:
+            # Log failed password attempt
+            db.log_admin_access(
+                user_id=user_id,
+                username=message.from_user.username or '',
+                first_name=message.from_user.first_name or '',
+                action="admin_password_failed",
+                details=f"Failed password attempt: {message.text}"
+            )
             await message.answer(
                 "❌ <b>Noto'g'ri parol!</b> Iltimos, qayta urinib ko'ring.\n\n"
                 "Admin panelga kirish uchun /admin buyrug'ini qayta yuboring.",

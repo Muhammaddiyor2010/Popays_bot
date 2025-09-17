@@ -70,6 +70,19 @@ class DatabaseManager:
                     )
                 ''')
                 
+                # Create admin_logs table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS admin_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        username TEXT,
+                        first_name TEXT,
+                        action TEXT NOT NULL,
+                        details TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
                 # Migrate existing database if needed
                 self._migrate_database(cursor)
                 
@@ -187,6 +200,22 @@ class DatabaseManager:
                         price REAL NOT NULL,
                         selected_size TEXT,
                         FOREIGN KEY (order_id) REFERENCES orders (id)
+                    )
+                ''')
+            
+            # Check if admin_logs table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_logs'")
+            if not cursor.fetchone():
+                logger.info("Creating admin_logs table")
+                cursor.execute('''
+                    CREATE TABLE admin_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        username TEXT,
+                        first_name TEXT,
+                        action TEXT NOT NULL,
+                        details TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
             
@@ -648,6 +677,51 @@ class DatabaseManager:
                 logger.info(f"Updated order {order_id} with location and delivery fee")
         except Exception as e:
             logger.error(f"Error updating order location and fee: {e}")
+
+    def log_admin_access(self, user_id: int, username: str, first_name: str, action: str, details: str = ""):
+        """Log admin panel access"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO admin_logs (user_id, username, first_name, action, details)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, username or '', first_name or '', action, details))
+                conn.commit()
+                logger.info(f"Admin access logged: {action} by user {user_id}")
+        except Exception as e:
+            logger.error(f"Error logging admin access: {e}")
+
+    def get_admin_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get admin access logs"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM admin_logs 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+                
+                logs = cursor.fetchall()
+                result = []
+                for log_row in logs:
+                    log_data = {
+                        'id': log_row[0],
+                        'user_id': log_row[1],
+                        'username': log_row[2],
+                        'first_name': log_row[3],
+                        'action': log_row[4],
+                        'details': log_row[5],
+                        'created_at': log_row[6]
+                    }
+                    result.append(log_data)
+                
+                return result
+                
+        except Exception as e:
+            logger.error(f"Error getting admin logs: {e}")
+            return []
 
 # Global database instance
 db = DatabaseManager()
