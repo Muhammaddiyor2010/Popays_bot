@@ -758,3 +758,5 @@ class DatabaseManager:
             return []
 
 
+# Create database instance
+db = DatabaseManager()
