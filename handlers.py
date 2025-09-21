@@ -18,6 +18,9 @@ ADMIN_PASSWORD = "202420"
 # Track users waiting for admin password
 waiting_for_admin_password = set()
 
+# Track users waiting for broadcast message
+waiting_for_broadcast_message = set()
+
 def get_order_channel_id(branch_name):
     """Determine which channel to send the order to based on branch name"""
     if not branch_name:
@@ -101,6 +104,121 @@ async def cmd_admin(message: Message):
         "Parolni kiriting:",
         reply_markup=get_back_keyboard()
     )
+
+@router.message(Command("broadcast"))
+async def cmd_broadcast(message: Message):
+    """Handle /broadcast command - send message to all users"""
+    user_id = message.from_user.id
+    
+    # Check if user is admin
+    if user_id != ADMIN_ID:
+        # Log unauthorized broadcast attempt
+        db.log_admin_access(
+            user_id=user_id,
+            username=message.from_user.username or '',
+            first_name=message.from_user.first_name or '',
+            action="unauthorized_broadcast_attempt",
+            details=f"User {user_id} tried to broadcast message"
+        )
+        await message.answer(
+            "❌ Siz admin emassiz! Bu buyruq faqat admin uchun.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+    
+    # Log broadcast attempt
+    db.log_admin_access(
+        user_id=user_id,
+        username=message.from_user.username or '',
+        first_name=message.from_user.first_name or '',
+        action="broadcast_requested",
+        details="Admin requested to broadcast message"
+    )
+    
+    # Ask for broadcast message
+    waiting_for_broadcast_message.add(user_id)
+    await message.answer(
+        "📢 <b>Barcha foydalanuvchilarga xabar yuborish</b>\n\n"
+        "Yubormoqchi bo'lgan xabaringizni yozing:",
+        reply_markup=get_back_keyboard()
+    )
+
+async def broadcast_message_to_all_users(bot, message_text: str, admin_user_id: int) -> dict:
+    """Send broadcast message to all users"""
+    try:
+        # Get all users from database
+        users = db.get_all_users_for_broadcast()
+        
+        if not users:
+            return {
+                'success': False,
+                'message': 'Foydalanuvchilar topilmadi!',
+                'sent': 0,
+                'failed': 0
+            }
+        
+        sent_count = 0
+        failed_count = 0
+        failed_users = []
+        
+        # Log broadcast start
+        db.log_admin_access(
+            user_id=admin_user_id,
+            username='',
+            first_name='',
+            action="broadcast_started",
+            details=f"Broadcasting to {len(users)} users: {message_text[:100]}..."
+        )
+        
+        # Send message to each user
+        for user in users:
+            try:
+                user_id = user['user_id']
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=message_text,
+                    parse_mode="HTML"
+                )
+                sent_count += 1
+                
+                # Small delay to avoid rate limiting
+                import asyncio
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                failed_count += 1
+                failed_users.append({
+                    'user_id': user_id,
+                    'username': user.get('username', 'N/A'),
+                    'error': str(e)
+                })
+                print(f"❌ Failed to send broadcast to user {user_id}: {e}")
+        
+        # Log broadcast completion
+        db.log_admin_access(
+            user_id=admin_user_id,
+            username='',
+            first_name='',
+            action="broadcast_completed",
+            details=f"Sent: {sent_count}, Failed: {failed_count}"
+        )
+        
+        return {
+            'success': True,
+            'message': f'Xabar yuborildi: {sent_count} ta foydalanuvchiga',
+            'sent': sent_count,
+            'failed': failed_count,
+            'failed_users': failed_users
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in broadcast_message_to_all_users: {e}")
+        return {
+            'success': False,
+            'message': f'Xabar yuborishda xatolik: {str(e)}',
+            'sent': 0,
+            'failed': 0
+        }
 
 async def show_admin_panel(message: Message, page: int = 1):
     """Show admin panel after password verification"""
@@ -871,7 +989,7 @@ async def back_handler(message: Message):
 
 @router.message()
 async def password_handler(message: Message):
-    """Handle password input for admin panel"""
+    """Handle password input for admin panel and broadcast messages"""
     user_id = message.from_user.id
     
     # Check if user is waiting for admin password
@@ -907,7 +1025,42 @@ async def password_handler(message: Message):
             )
         return
     
-    # If not waiting for password, handle as regular message
+    # Check if user is waiting for broadcast message
+    if user_id in waiting_for_broadcast_message:
+        # Remove from waiting list
+        waiting_for_broadcast_message.remove(user_id)
+        
+        # Get the message text
+        broadcast_text = message.text
+        
+        # Send confirmation message
+        await message.answer(
+            "📢 <b>Xabar yuborilmoqda...</b>\n\n"
+            "Iltimos, kuting. Bu biroz vaqt olishi mumkin.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        
+        # Send broadcast message to all users
+        result = await broadcast_message_to_all_users(
+            bot=message.bot,
+            message_text=broadcast_text,
+            admin_user_id=user_id
+        )
+        
+        # Send result to admin
+        if result['success']:
+            result_message = f"✅ <b>Xabar muvaffaqiyatli yuborildi!</b>\n\n"
+            result_message += f"📤 <b>Yuborildi:</b> {result['sent']} ta foydalanuvchiga\n"
+            if result['failed'] > 0:
+                result_message += f"❌ <b>Yuborilmadi:</b> {result['failed']} ta foydalanuvchiga\n"
+            result_message += f"\n📝 <b>Xabar:</b>\n{broadcast_text}"
+        else:
+            result_message = f"❌ <b>Xabar yuborishda xatolik!</b>\n\n{result['message']}"
+        
+        await message.answer(result_message, reply_markup=get_main_menu_keyboard())
+        return
+    
+    # If not waiting for password or broadcast, handle as regular message
     await echo_handler(message)
 
 async def echo_handler(message: Message):

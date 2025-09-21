@@ -723,5 +723,38 @@ class DatabaseManager:
             logger.error(f"Error getting admin logs: {e}")
             return []
 
-# Global database instance
-db = DatabaseManager()
+    def get_all_users_for_broadcast(self) -> List[Dict[str, Any]]:
+        """Get all unique users for broadcast messaging"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Get all unique users from orders table
+                cursor.execute('''
+                    SELECT DISTINCT 
+                        user_id, 
+                        username, 
+                        first_name
+                    FROM orders 
+                    WHERE user_id IS NOT NULL
+                    ORDER BY user_id
+                ''')
+                
+                users = cursor.fetchall()
+                
+                result = []
+                for user_row in users:
+                    user_data = {
+                        'user_id': user_row[0],
+                        'username': user_row[1] or '',
+                        'first_name': user_row[2] or ''
+                    }
+                    result.append(user_data)
+                
+                return result
+                
+        except Exception as e:
+            logger.error(f"Error getting users for broadcast: {e}")
+            return []
+
+
